@@ -20,6 +20,7 @@ and fail the gate.
 Stdlib only, no network, deterministic: every run writes the same byte.
 """
 import os
+import tempfile
 
 LETTER = "B"
 
@@ -38,8 +39,20 @@ def main():
     validate_letter(LETTER)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = os.path.join(OUTPUT_DIR, "entry.txt")
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(LETTER)
+    # Write atomically: a crash mid-write must never leave a partial
+    # entry.txt behind, so stage the byte in a temp file in the same
+    # directory and rename it into place.
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=OUTPUT_DIR, prefix=".entry-", suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8", newline="") as f:
+            f.write(LETTER)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     # Read back and verify: the gate fails anything that is not exactly
     # one character, so refuse to leave a wrong file behind silently.
     with open(path, "rb") as f:
